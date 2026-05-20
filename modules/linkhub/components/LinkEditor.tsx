@@ -5,6 +5,8 @@ import { Translation } from '../locales';
 import { ICON_OPTIONS } from '../constants';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
+const DraggableComponent = Draggable as any;
+
 interface LinkEditorProps {
   links: LinkItem[];
   setLinks: (links: LinkItem[]) => void;
@@ -151,7 +153,7 @@ const LinkEditor: React.FC<LinkEditorProps> = ({ links, setLinks, t }) => {
                       const IconComponent = ICON_OPTIONS[link.icon || 'globe']?.component || ICON_OPTIONS['globe'].component;
                       
                       return (
-                      <Draggable key={link.id} draggableId={link.id} index={index}>
+                      <DraggableComponent key={link.id} draggableId={link.id} index={index}>
                         {(provided, snapshot) => (
                           <div 
                             ref={provided.innerRef}
@@ -263,7 +265,7 @@ const LinkEditor: React.FC<LinkEditorProps> = ({ links, setLinks, t }) => {
                               </div>
                           </div>
                         )}
-                      </Draggable>
+                      </DraggableComponent>
                   )})}
                   {provided.placeholder}
                 </div>

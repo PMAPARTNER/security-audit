@@ -10,9 +10,8 @@ import LandingPage from './components/LandingPage';
 import ShareModal from './components/ShareModal';
 import { DEFAULT_LINKS, DEFAULT_PROFILE, THEMES } from './constants';
 import { LinkItem, UserProfile, ThemeConfig, Language, AnalyticsStats } from './types';
-import { generateHtml } from './utils/htmlGenerator';
 import { translations } from './locales';
-import { uploadToGitHub } from './services/githubService';
+import { useGithubPublisher } from './hooks/useGithubPublisher';
 
 const App: React.FC = () => {
   const [showLanding, setShowLanding] = useState(true);
@@ -31,56 +30,30 @@ const App: React.FC = () => {
     gaMeasurementId: ''
   });
 
-  // Publish & GitHub State
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  
-  // GitHub Config Form - Initialize empty for security
-  const [githubConfig, setGithubConfig] = useState({ 
-      username: '', 
-      repo: 'baglantilarim', 
-      token: '' 
-  });
-  const [configError, setConfigError] = useState<string | null>(null);
-
   const t = translations[language];
+
+  // Hook usage for GitHub publishing and file generation
+  const {
+    isPublishing,
+    publishedUrl,
+    isCopied,
+    showConfigModal,
+    setShowConfigModal,
+    showPublishSuccess,
+    setShowPublishSuccess,
+    configError,
+    setGithubConfig,
+    githubConfig,
+    handleDownload,
+    initiatePublish,
+    handleSaveConfig,
+    copyPublishedUrl
+  } = useGithubPublisher(profile, links, theme, language, analytics, t);
+
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // Default Favicon (LinkHub Purple L)
   const DEFAULT_FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%239333ea'/%3E%3Ctext x='50' y='70' font-family='sans-serif' font-size='70' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E";
-
-  // Load GitHub config from local storage on mount OR auto-detect user from hardcoded token
-  useEffect(() => {
-    const savedConfig = localStorage.getItem('linkhub_github_config');
-    if (savedConfig) {
-      const config = JSON.parse(savedConfig);
-      setGithubConfig(config);
-      // Reconstruct URL if we have a config
-      if (config.username && config.repo) {
-        setPublishedUrl(`https://${config.username}.github.io/${config.repo}/`);
-      }
-    } else {
-        // Auto-detect username if we have a token but no local storage
-        const detectUser = async () => {
-            if (githubConfig.token) {
-                try {
-                    const res = await fetch('https://api.github.com/user', {
-                        headers: { Authorization: `token ${githubConfig.token}` }
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        setGithubConfig(prev => ({ ...prev, username: data.login }));
-                    }
-                } catch (e) {
-                    console.error("Auto-detect failed", e);
-                }
-            }
-        };
-        detectUser();
-    }
-  }, []);
 
   // Update Favicon dynamically
   useEffect(() => {
@@ -124,85 +97,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDownload = () => {
-    const { htmlContent, fileName } = generateHtml(profile, links, theme, language, t, analytics);
-    
-    // Create blob and download link
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    
-    // Cleanup
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const initiatePublish = () => {
-    // Check if we have config
-    if (!githubConfig.username || !githubConfig.repo || !githubConfig.token) {
-        setShowConfigModal(true);
-    } else {
-        performPublish(githubConfig);
-    }
-  };
-
-  const performPublish = async (config: typeof githubConfig) => {
-      setIsPublishing(true);
-      setConfigError(null);
-      
-      try {
-          // Generate HTML
-          const { htmlContent } = generateHtml(profile, links, theme, language, t, analytics);
-          
-          // 1. Upload index.html to GitHub
-          let url = await uploadToGitHub(config, htmlContent, 'index.html');
-          
-          // 2. Upload CNAME if custom domain is set
-          if (profile.customDomain && profile.customDomain.trim() !== '') {
-             await uploadToGitHub(config, profile.customDomain.trim(), 'CNAME');
-             url = `https://${profile.customDomain.trim()}/`;
-          }
-
-          // Save valid config
-          localStorage.setItem('linkhub_github_config', JSON.stringify(config));
-          
-          setPublishedUrl(url);
-          setShowConfigModal(false);
-          if (!configError) setShowPublishSuccess(true);
-      } catch (error: any) {
-          console.error(error);
-          setConfigError(error.message || t.github.error);
-          // Re-open config modal if it failed and wasn't open
-          setShowConfigModal(true);
-      } finally {
-          setIsPublishing(false);
-      }
-  };
-
-  const handleSaveConfig = () => {
-      // Validate Token Format
-      if (!githubConfig.token.trim().startsWith('ghp_') && !githubConfig.token.trim().startsWith('github_pat_')) {
-          setConfigError(language === 'tr' 
-            ? 'Geçersiz format. GitHub Jetonları genellikle "ghp_" ile başlar.' 
-            : 'Invalid format. GitHub Tokens usually start with "ghp_".');
-          return;
-      }
-      performPublish(githubConfig);
-  };
-
-  const copyPublishedUrl = () => {
-      if (publishedUrl) {
-          navigator.clipboard.writeText(publishedUrl);
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000);
-      }
-  };
-
-  const [showPublishSuccess, setShowPublishSuccess] = useState(false);
+  // GitHub integration functions are handled by useGithubPublisher hook.
 
   if (showLanding) {
     return <LandingPage onStart={() => setShowLanding(false)} t={t} toggleLanguage={toggleLanguage} language={language.toUpperCase()} />;

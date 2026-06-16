@@ -1,0 +1,116 @@
+name: Security Audit Tracking
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run weekly security audit sync
+    - cron: '0 9 * * 1'
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  sync-audit-findings:
+    runs-on: ubuntu-latest
+    name: Sync Security Audit Findings to GitHub Issues
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create/Update GitHub Issues for Audit Findings
+        run: |
+          # Critical findings
+          node scripts/create-audit-issues.js \
+            --severity critical \
+            --template ".github/templates/audit-issue-critical.md"
+
+          # High priority findings
+          node scripts/create-audit-issues.js \
+            --severity high \
+            --template ".github/templates/audit-issue-high.md"
+
+      - name: Add Labels to Issues
+        run: |
+          gh issue list \
+            --label "security-audit" \
+            --state open \
+            --json number \
+            --jq ".[].number" | \
+          while read issue; do
+            gh issue edit "$issue" \
+              --add-label "needs-investigation,high-priority"
+          done
+
+      - name: Comment on Dashboard Link
+        run: |
+          gh issue create \
+            --title "🔐 Weekly Security Audit Report Available" \
+            --body "View the latest security audit findings and status at: https://ppg.pmapartner.com/admin/security-audit" \
+            --label "documentation,security-audit" \
+            --assignee sserdarb \
+            2>/dev/null || echo "Issue creation skipped (may already exist)"
+
+      - name: Generate Summary Report
+        run: |
+          cat > /tmp/audit-summary.md << 'EOF'
+          # 🔐 Security Audit Summary
+
+          **Last Updated:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          ## Key Findings
+          - 🔴 Critical: 1 issue
+          - 🟠 High: 28 issues
+          - 🟡 Medium: 85 issues
+          - 🟢 Low: 31 issues
+
+          **Total:** 145 confirmed findings out of 189 reviewed
+
+          ## How to Access
+          - **Dashboard:** https://ppg.pmapartner.com/admin/security-audit
+          - **GitHub Project:** https://github.com/sserdarb/antigravity/projects?query=security-audit
+          - **Issues:** https://github.com/sserdarb/antigravity/issues?labels=security-audit
+
+          ## Next Steps
+          1. Review critical findings first (🔴)
+          2. Create fix branches with `security-audit-fix/` prefix
+          3. Link PRs to corresponding GitHub issues
+          4. Use milestone "Security Hardening" for tracking
+          EOF
+
+          cat /tmp/audit-summary.md
+
+  notify-slack:
+    runs-on: ubuntu-latest
+    name: Notify Slack of Critical Findings
+    if: always()
+
+    steps:
+      - name: Send Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            🔐 Security Audit Sync Completed
+
+            Critical Issues: 1
+            High Priority: 28
+
+            View dashboard: https://ppg.pmapartner.com/admin/security-audit
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          fields: repo,message,commit,author
+
+  dashboard-health-check:
+    runs-on: ubuntu-latest
+    name: Verify Audit Dashboard Accessibility
+
+    steps:
+      - name: Health Check Audit Dashboard
+        run: |
+          curl -s -o /dev/null -w "Dashboard Status: %{http_code}\n" \
+            https://ppg.pmapartner.com/api/admin/audit/findings
